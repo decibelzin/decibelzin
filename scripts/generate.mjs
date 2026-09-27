@@ -1,4 +1,4 @@
-// Generates the profile SVGs in ./assets from live GitHub data.
+// Generates the profile SVGs in ./assets from live GitHub data, in a dark and a light variant.
 // Usage: GITHUB_TOKEN=... node scripts/generate.mjs
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 
@@ -9,22 +9,46 @@ if (!token) throw new Error("GITHUB_TOKEN is required");
 
 const W = 912;
 const FONT = "ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono', monospace";
-const C = {
-  bg: "#050505",
-  border: "#1c1c1c",
-  text: "#ededed",
-  soft: "#a1a1a1",
-  muted: "#6b6b6b",
-  cell: "#121212",
-  accent: "#ffffff",
-  ramp: ["#141414", "#303030", "#5c5c5c", "#9e9e9e", "#f0f0f0"],
-};
 const MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+// The README picks a variant with <picture> and prefers-color-scheme, which GitHub resolves from
+// the viewer's GitHub theme. Dark is smoked glass with light ink; light is frosted glass with
+// GitHub's own dark ink, and busier days get darker, like GitHub's light graph.
+const THEMES = {
+  dark: {
+    glass: { fill: "#0a0a0a", opacity: 0.84, edge: "#ffffff", gloss: 0.08, bar: 0.1, active: 0.22, idle: 0.09, card: 0.12 },
+    text: "#e6e6e6", strong: "#ffffff", title: "#ededed",
+    label: "#a8a8a8", faint: "#8e8e8e", key: "#a0a0a0", sep: "#6a6a6a", barText: "#b0b0b0",
+    pill: ["#e6e6e6", "#050505"], logo: "#e0e0e0", icon: "#bdbdbd",
+    sheen: ["#d4d4d4", "#ffffff"], shadow: "#5e5e5e",
+    palette: ["#141414", "#262626", "#3d3d3d", "#595959", "#7a7a7a", "#a0a0a0", "#c8c8c8", "#f2f2f2"],
+    bars: { low: "#555555", high: "#ffffff", none: "#1c1c1c" },
+    wire: "#ffffff",
+    ramp: ["#141414", "#505050", "#7a7a7a", "#b0b0b0", "#f0f0f0"],
+    empty: { fill: "#ffffff", opacity: 0.07 },
+    shade: { to: "#050505", front: 0.35, side: 0.62 },
+    hot: 0.6,
+    peak: { bg: "#050505", stroke: "#3a3a3a", text: "#f2f2f2", tick: "#5a5a5a", dot: "#ffffff" },
+  },
+  light: {
+    glass: { fill: "#f6f8fa", opacity: 0.78, edge: "#1f2328", gloss: 0.5, bar: 0.12, active: 0.3, idle: 0.12, card: 0.14 },
+    text: "#1f2328", strong: "#000000", title: "#1f2328",
+    label: "#57606a", faint: "#6e7781", key: "#6e7781", sep: "#c4c9cf", barText: "#424a53",
+    pill: ["#1f2328", "#ffffff"], logo: "#1f2328", icon: "#424a53",
+    sheen: ["#24292f", "#8c959f"], shadow: "#b1b8c0",
+    palette: ["#141414", "#262626", "#3d3d3d", "#595959", "#7a7a7a", "#a0a0a0", "#c8c8c8", "#f2f2f2"],
+    bars: { low: "#c4c9cf", high: "#1f2328", none: "#e6e9ec" },
+    wire: "#1f2328",
+    ramp: ["#ebedf0", "#c2c2c2", "#8a8a8a", "#505050", "#1c1c1c"],
+    empty: { fill: "#000000", opacity: 0.06 },
+    shade: { to: "#000000", front: 0.14, side: 0.3 },
+    hot: 0.45,
+    peak: { bg: "#ffffff", stroke: "#d0d7de", text: "#1f2328", tick: "#afb8c1", dot: "#1f2328" },
+  },
+};
 
 const esc = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]);
-// Monospace glyphs are ~0.6em wide.
-const textWidth = (s, size) => s.length * size * 0.6;
 const r1 = (v) => Math.round(v * 10) / 10;
 const r2 = (v) => Math.round(v * 100) / 100;
 const fmtDate = (iso) => {
@@ -83,10 +107,18 @@ const icons = Object.fromEntries(
 function frame(w, h, style, body) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="${FONT}">
   <style>${style}@media (prefers-reduced-motion: reduce) { * { animation: none !important } }</style>
-  <rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" rx="14" fill="${C.bg}" stroke="${C.border}"/>
 ${body}
 </svg>
 `;
+}
+
+// Glass panels shared by both cards. The cards have no background, so the panels float on the
+// GitHub page itself: translucent glass with a hairline border and a sheen along the top edge.
+const glassDefs = (t) =>
+  `<linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="${t.glass.gloss}"/><stop offset=".3" stop-color="#ffffff" stop-opacity="0"/></linearGradient>`;
+
+function glass(t, x, y, w, h, rx, edge) {
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${t.glass.fill}" fill-opacity="${t.glass.opacity}" stroke="${t.glass.edge}" stroke-opacity="${edge}"/><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="url(#gloss)"/>`;
 }
 
 const days = cal.weeks.flatMap((w) => w.contributionDays);
@@ -108,7 +140,7 @@ function stats() {
 // Wireframe icosahedron with its dual dodecahedron counter-rotating inside. Both solids map onto
 // themselves after a 72° turn about the shared 5-fold axis, so only that slice is sampled and it
 // loops seamlessly. Each edge fades with its depth, which is what makes it read as 3D.
-function solid(cx, cy, R) {
+function solid(t, cx, cy, R) {
   const PERIOD = 12, FRAMES = 24;
   const TILT = (18 * Math.PI) / 180, ROLL = (-14 * Math.PI) / 180;
 
@@ -177,12 +209,9 @@ function solid(cx, cy, R) {
       })
       .join("");
 
-  return {
-    style: "",
-    body: `
-  <g fill="none" stroke="#ffffff" stroke-linecap="round">${wire(ico, icoEdges, 1, 1, 0.85, 1)}${wire(dod, dodEdges, -1, 0.52, 0.45, 0.8)}</g>
-  <g fill="#ffffff">${points(ico, 1, 1, 1)}</g>`,
-  };
+  return `
+  <g fill="none" stroke="${t.wire}" stroke-linecap="round">${wire(ico, icoEdges, 1, 1, 0.85, 1)}${wire(dod, dodEdges, -1, 0.52, 0.45, 0.8)}</g>
+  <g fill="${t.wire}">${points(ico, 1, 1, 1)}</g>`;
 }
 
 // "ANSI Shadow" figlet letters. They are drawn as geometry rather than text so the blocks and
@@ -235,7 +264,7 @@ function figlet(text, x0, y0, cw, ch) {
 // name in figlet, a window rendering the wireframe solid and a small activity monitor.
 // On load it boots: the bar drops in, `fastfetch` is typed, its output rises in line by line while
 // the side windows open, then the bottom prompt starts typing commands forever.
-function heroCard() {
+function heroCard(t) {
   const H = 362, M = 12, GAP = 10, TOP = 50;
   const LW = 540, RX = M + LW + GAP, RW = W - M - RX;
   const RT = 172, RB = TOP + RT + GAP;
@@ -249,10 +278,9 @@ function heroCard() {
   T.out = T.enter + 0.1;
   T.prompt2 = T.out + 1.35;
   T.loop = T.prompt2 + 0.4;
-  const at = (cls, t, body) => `<g class="${cls}" style="--t:${r2(t)}s">${body}</g>`;
+  const at = (cls, time, body) => `<g class="${cls}" style="--t:${r2(time)}s">${body}</g>`;
 
-  const win = (x, y, w, h, active) =>
-    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="#080808" stroke="${active ? "#4a4a4a" : "#1d1d1d"}"/>`;
+  const win = (x, y, w, h, active) => glass(t, x, y, w, h, 10, active ? t.glass.active : t.glass.idle);
   const mono = (x, y, s, fill, extra = "") =>
     `<text x="${r1(x)}" y="${r1(y)}" fill="${fill}" font-size="${FS}" textLength="${r1(s.length * CW)}" lengthAdjust="spacingAndGlyphs"${extra}>${esc(s)}</text>`;
   const icon = (slug, x, y, size, fill) =>
@@ -264,26 +292,26 @@ function heroCard() {
   for (let i = 0; i < 5; i++) {
     const x = 54 + i * 22;
     ws += i === 0
-      ? `<rect x="${x - 8}" y="${mid - 8}" width="16" height="16" rx="8" fill="#e6e6e6"/><text x="${x}" y="${mid + 3.5}" fill="#050505" font-size="10" text-anchor="middle" font-weight="700">1</text>`
-      : `<text x="${x}" y="${mid + 3.5}" fill="#4f4f4f" font-size="10" text-anchor="middle">${i + 1}</text>`;
+      ? `<rect x="${x - 8}" y="${mid - 8}" width="16" height="16" rx="8" fill="${t.pill[0]}"/><text x="${x}" y="${mid + 3.5}" fill="${t.pill[1]}" font-size="10" text-anchor="middle" font-weight="700">1</text>`
+      : `<text x="${x}" y="${mid + 3.5}" fill="${t.key}" font-size="10" text-anchor="middle">${i + 1}</text>`;
   }
-  const bar = at("drop", T.bar, `<rect x="${M}" y="${barY}" width="${W - 2 * M}" height="${barH}" rx="8" fill="#0b0b0b" stroke="#1c1c1c"/>
-  ${icon("archlinux", 24, mid - 7, 14, "#e0e0e0")}${ws}
-  <text x="${W / 2}" y="${mid + 3.5}" fill="#6f6f6f" font-size="10.5" text-anchor="middle">fastfetch — kitty</text>
-  <text x="${W - M - 14}" y="${mid + 3.5}" fill="#9a9a9a" font-size="10.5" text-anchor="end">${cal.totalContributions} commits<tspan fill="#3a3a3a">  │  </tspan>${st.longest}d streak</text>`);
+  const bar = at("drop", T.bar, `${glass(t, M, barY, W - 2 * M, barH, 8, t.glass.bar)}
+  ${icon("archlinux", 24, mid - 7, 14, t.logo)}${ws}
+  <text x="${W / 2}" y="${mid + 3.5}" fill="${t.label}" font-size="10.5" text-anchor="middle">fastfetch</text>
+  <text x="${W - M - 14}" y="${mid + 3.5}" fill="${t.barText}" font-size="10.5" text-anchor="end">${cal.totalContributions} commits<tspan fill="${t.sep}">  │  </tspan>${st.longest}d streak</text>`);
 
   // terminal
   const prompt = `${config.name}@${config.username} ~ ❯`;
   const promptEl = (y) =>
-    `<text x="${TX}" y="${y}" font-size="${FS}" textLength="${r1(prompt.length * CW)}" lengthAdjust="spacingAndGlyphs"><tspan fill="#e6e6e6">${esc(config.name)}</tspan><tspan fill="#5a5a5a">@</tspan><tspan fill="#e6e6e6">${esc(config.username)}</tspan><tspan fill="#5a5a5a"> ~ </tspan><tspan fill="#ffffff">❯</tspan></text>`;
+    `<text x="${TX}" y="${y}" font-size="${FS}" textLength="${r1(prompt.length * CW)}" lengthAdjust="spacingAndGlyphs"><tspan fill="${t.text}">${esc(config.name)}</tspan><tspan fill="${t.label}">@</tspan><tspan fill="${t.text}">${esc(config.username)}</tspan><tspan fill="${t.label}"> ~ </tspan><tspan fill="${t.strong}">❯</tspan></text>`;
   const cmdX = TX + (prompt.length + 1) * CW;
 
   // typing: a clip rect widens one cell per keystroke and the cursor follows, on discrete SMIL
   // steps so it reads like real keystrokes
   const typer = (id, cmd, y, keys, opts) =>
-    `<clipPath id="${id}"><rect x="${r1(cmdX)}" y="${y - 12}" height="16" width="0"><animate attributeName="width" ${discrete(keys, opts)}/></rect></clipPath>${mono(cmdX, y, cmd, "#e6e6e6", ` clip-path="url(#${id})"`)}`;
-  const cursorEl = (y, keys, opts, extra = "") =>
-    `<rect class="cur" x="${r1(cmdX)}" y="${y - 10.5}" width="${CW}" height="13" fill="#e6e6e6"><animate attributeName="x" ${discrete(keys, opts)}/></rect>${extra}`;
+    `<clipPath id="${id}"><rect x="${r1(cmdX)}" y="${y - 12}" height="16" width="0"><animate attributeName="width" ${discrete(keys, opts)}/></rect></clipPath>${mono(cmdX, y, cmd, t.text, ` clip-path="url(#${id})"`)}`;
+  const cursorEl = (y, keys, opts) =>
+    `<rect class="cur" x="${r1(cmdX)}" y="${y - 10.5}" width="${CW}" height="13" fill="${t.text}"><animate attributeName="x" ${discrete(keys, opts)}/></rect>`;
 
   const y1 = TOP + 24;
   const ffKeys = [[0, 0], ...[..."fastfetch"].map((_, k) => [(k + 1) * T.key, r1((k + 1) * CW)])];
@@ -295,34 +323,34 @@ function heroCard() {
   const fig = figlet(config.name, TX, 86, 8, 15);
   const logo = fig
     ? fig.rows
-        .map((row, r) => at("in", T.out + r * 0.055, `<g fill="url(#sheen)" shape-rendering="crispEdges">${row.blocks}</g><path d="${row.lines}" fill="none" stroke="#5e5e5e" stroke-width=".9"/>`))
+        .map((row, r) => at("in", T.out + r * 0.055, `<g fill="url(#sheen)" shape-rendering="crispEdges">${row.blocks}</g><path d="${row.lines}" fill="none" stroke="${t.shadow}" stroke-width=".9"/>`))
         .join("")
-    : at("in", T.out, `<text x="${TX}" y="150" fill="#ededed" font-size="64" font-weight="700">${esc(config.name)}</text>`);
+    : at("in", T.out, `<text x="${TX}" y="150" fill="${t.title}" font-size="64" font-weight="700">${esc(config.name)}</text>`);
 
   const KX = TX, VX = TX + 9 * CW, info0 = 198, LH = 17;
   const list = (items, y) => {
     let x = VX;
     return items
       .map(({ name, icon: slug }) => {
-        const el = icon(slug, x, y - 9.5, 11, "#bdbdbd") + mono(x + (icons[slug] ? 15 : 0), y, name.toLowerCase(), "#e6e6e6");
+        const el = icon(slug, x, y - 9.5, 11, t.icon) + mono(x + (icons[slug] ? 15 : 0), y, name.toLowerCase(), t.text);
         x += (icons[slug] ? 15 : 0) + name.length * CW + 16;
         return el;
       })
       .join("");
   };
   const lines = [
-    ["role", (y) => mono(VX, y, config.role, "#e6e6e6")],
-    ["focus", (y) => mono(VX, y, config.bio, "#e6e6e6")],
+    ["role", (y) => mono(VX, y, config.role, t.text)],
+    ["focus", (y) => mono(VX, y, config.bio, t.text)],
     ["langs", (y) => list(config.langs, y)],
     ["tools", (y) => list(config.tools, y)],
-    ["commits", (y) => mono(VX, y, `${cal.totalContributions} this year · ${st.longest}d longest streak`, "#e6e6e6")],
-    ["note", (y) => mono(VX, y, config.note, "#e6e6e6")],
+    ["commits", (y) => mono(VX, y, `${cal.totalContributions} this year · ${st.longest}d longest streak`, t.text)],
+    ["note", (y) => mono(VX, y, config.note, t.text)],
   ];
   const info = lines
-    .map(([key, value], i) => at("in", T.out + 0.42 + i * 0.075, mono(KX, info0 + i * LH, key, "#7a7a7a") + value(info0 + i * LH)))
+    .map(([key, value], i) => at("in", T.out + 0.42 + i * 0.075, mono(KX, info0 + i * LH, key, t.key) + value(info0 + i * LH)))
     .join("\n  ");
   const palY = info0 + 5 * LH + 12;
-  const palette = ["#141414", "#262626", "#3d3d3d", "#595959", "#7a7a7a", "#a0a0a0", "#c8c8c8", "#f2f2f2"]
+  const palette = t.palette
     .map((c, i) => at("in", T.out + 0.95 + i * 0.035, `<rect x="${KX + i * 22}" y="${palY}" width="22" height="11" fill="${c}"/>`))
     .join("");
 
@@ -334,9 +362,9 @@ function heroCard() {
     .map((cmd, i) => {
       const t0 = i * SLOT, keys = [[0, 0]];
       [...cmd].forEach((_, k) => {
-        const t = t0 + 0.3 + k * 0.065;
-        keys.push([t, r1((k + 1) * CW)]);
-        cursorKeys.push([t, r1(cmdX + (k + 1) * CW)]);
+        const time = t0 + 0.3 + k * 0.065;
+        keys.push([time, r1((k + 1) * CW)]);
+        cursorKeys.push([time, r1(cmdX + (k + 1) * CW)]);
       });
       keys.push([t0 + SLOT - 0.35, 0]);
       cursorKeys.push([t0 + SLOT - 0.35, cmdX]);
@@ -351,13 +379,12 @@ function heroCard() {
   const bars = weeks
     .map((n, i) => {
       const h = n ? Math.max(3, 56 * Math.sqrt(n / maxW)) : 2;
-      return `<rect class="grow" style="--t:${r2(T.out + 0.45 + i * 0.018)}s" x="${r1(ax + i * pitch)}" y="${r1(base - h)}" width="${r1(pitch - 4)}" height="${r1(h)}" rx="1.5" fill="${n ? mix("#2e2e2e", "#ffffff", (n / maxW) ** 0.7) : "#1c1c1c"}"/>`;
+      return `<rect class="grow" style="--t:${r2(T.out + 0.45 + i * 0.018)}s" x="${r1(ax + i * pitch)}" y="${r1(base - h)}" width="${r1(pitch - 4)}" height="${r1(h)}" rx="1.5" fill="${n ? mix(t.bars.low, t.bars.high, (n / maxW) ** 0.7) : t.bars.none}"/>`;
     })
     .join("");
 
-  const sol = solid(RX + RW / 2, TOP + RT / 2 + 6, 64);
   const ease = "cubic-bezier(.2,.8,.2,1)";
-  const style = `${sol.style}
+  const style = `
     .in { animation: rise .55s ${ease} backwards; animation-delay: var(--t) }
     @keyframes rise { from { opacity: 0; transform: translateY(5px) } }
     .drop { animation: drop .5s ${ease} backwards; animation-delay: var(--t) }
@@ -371,8 +398,8 @@ function heroCard() {
   `;
   const figW = fig?.width ?? 400;
   return frame(W, H, style, `
-  <defs><linearGradient id="sheen" gradientUnits="userSpaceOnUse" x1="${TX}" y1="0" x2="${TX + 140}" y2="0">
-    <stop offset="0" stop-color="#d4d4d4"/><stop offset=".5" stop-color="#ffffff"/><stop offset="1" stop-color="#d4d4d4"/>
+  <defs>${glassDefs(t)}<linearGradient id="sheen" gradientUnits="userSpaceOnUse" x1="${TX}" y1="0" x2="${TX + 140}" y2="0">
+    <stop offset="0" stop-color="${t.sheen[0]}"/><stop offset=".5" stop-color="${t.sheen[1]}"/><stop offset="1" stop-color="${t.sheen[0]}"/>
     <animateTransform attributeName="gradientTransform" type="translate" begin="${r2(T.out + 0.5)}s" dur="7s" repeatCount="indefinite" values="-200 0;${r1(figW + 60)} 0;${r1(figW + 60)} 0" keyTimes="0;.45;1"/>
   </linearGradient></defs>
   ${bar}
@@ -383,12 +410,12 @@ function heroCard() {
   ${palette}
   ${lastPrompt}
   ${at("pop", T.out + 0.15, `${win(RX, TOP, RW, RT, false)}
-  <text x="${RX + 14}" y="${TOP + 20}" fill="#5a5a5a" font-size="10">~/render</text>
-  <text x="${W - M - 14}" y="${TOP + 20}" fill="#3f3f3f" font-size="10" text-anchor="end">icosahedron.obj</text>
-  ${sol.body}`)}
+  <text x="${RX + 14}" y="${TOP + 20}" fill="${t.label}" font-size="10">~/render</text>
+  <text x="${W - M - 14}" y="${TOP + 20}" fill="${t.faint}" font-size="10" text-anchor="end">icosahedron.obj</text>
+  ${solid(t, RX + RW / 2, TOP + RT / 2 + 6, 64)}`)}
   ${at("pop", T.out + 0.3, `${win(RX, RB, RW, H - M - RB, false)}
-  <text x="${RX + 14}" y="${RB + 20}" fill="#5a5a5a" font-size="10">activity</text>
-  <text x="${W - M - 14}" y="${RB + 20}" fill="#3f3f3f" font-size="10" text-anchor="end">${weeks.reduce((a, b) => a + b, 0)} commits · 26w</text>
+  <text x="${RX + 14}" y="${RB + 20}" fill="${t.label}" font-size="10">activity</text>
+  <text x="${W - M - 14}" y="${RB + 20}" fill="${t.faint}" font-size="10" text-anchor="end">${weeks.reduce((a, b) => a + b, 0)} commits · 26w</text>
   ${bars}`)}`);
 }
 
@@ -396,7 +423,7 @@ function heroCard() {
 // `begin`), either looping every `dur` seconds or playing once and holding the last value.
 function discrete(pairs, { begin = 0, dur, loop = true }) {
   const sorted = [...pairs].sort((a, b) => a[0] - b[0]);
-  const keyTimes = sorted.map(([t]) => Math.round((t / dur) * 10000) / 10000);
+  const keyTimes = sorted.map(([time]) => Math.round((time / dur) * 10000) / 10000);
   return `begin="${r2(begin)}s" dur="${r2(dur)}s" ${loop ? `repeatCount="indefinite"` : `fill="freeze"`} calcMode="discrete" keyTimes="${keyTimes.join(";")}" values="${sorted.map(([, v]) => v).join(";")}"`;
 }
 
@@ -404,9 +431,9 @@ function discrete(pairs, { begin = 0, dur, loop = true }) {
 // a low 3D angle. Every day is a prism whose height is always there: from above it is just a
 // square, and as the camera pitches down its walls come into view. All geometry follows a single
 // camera track that is sampled into CSS keyframes, so 2D and 3D are one object, never a swap.
-function skylineCard() {
+function skylineCard(t) {
   const P = 12, PITCH = 16, CW = 12, T = CW / PITCH;
-  const MAXH = 90, MINH = 7, Y0 = 180;
+  const MAXH = 90, MINH = 7, Y0 = 196;
   const NW = cal.weeks.length;
   const gx = r1((W - (NW * PITCH - 4) + 28) / 2); // room for weekday labels on the left
   const cx = r1(gx + (NW * PITCH - 4) / 2);
@@ -417,19 +444,19 @@ function skylineCard() {
   // Camera track: pitch 90deg is straight down. Heights show as cos(pitch), row depth as sin(pitch),
   // and a depth shear (also growing with cos) reveals the right-hand walls.
   const TILT = [1, 3], BACK = [7.6, 9.6], SWEEP = 3.6, LOW = 27, DRIFT = 7, SH = 0.5, SH2 = 0.32;
-  const lerp = (a, b, t) => a + (b - a) * t;
+  const lerp = (a, b, x) => a + (b - a) * x;
   const ease = (x) => (x < 0.5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2);
   const sine = (x) => (1 - Math.cos(Math.PI * x)) / 2;
   const cos27 = Math.cos((LOW * Math.PI) / 180);
-  function cam(t) {
+  function cam(time) {
     let pitch = 90, sh = SH;
-    if (t > TILT[0] && t < TILT[1]) pitch = lerp(90, LOW, ease((t - TILT[0]) / (TILT[1] - TILT[0])));
-    else if (t >= TILT[1] && t <= BACK[0]) {
-      const u = sine((t - TILT[1]) / (BACK[0] - TILT[1]));
+    if (time > TILT[0] && time < TILT[1]) pitch = lerp(90, LOW, ease((time - TILT[0]) / (TILT[1] - TILT[0])));
+    else if (time >= TILT[1] && time <= BACK[0]) {
+      const u = sine((time - TILT[1]) / (BACK[0] - TILT[1]));
       pitch = LOW + DRIFT * u;
       sh = lerp(SH, SH2, u);
-    } else if (t > BACK[0] && t < BACK[1]) {
-      const u = ease((t - BACK[0]) / (BACK[1] - BACK[0]));
+    } else if (time > BACK[0] && time < BACK[1]) {
+      const u = ease((time - BACK[0]) / (BACK[1] - BACK[0]));
       pitch = lerp(LOW + DRIFT, 90, u);
       sh = lerp(SH2, SH, u);
     }
@@ -441,7 +468,7 @@ function skylineCard() {
 
   const times = [0];
   const step = (a, b, dt) => {
-    for (let t = a; t < b - 1e-9; t += dt) times.push(r2(t));
+    for (let time = a; time < b - 1e-9; time += dt) times.push(r2(time));
   };
   step(TILT[0], TILT[1], 0.1);
   step(TILT[1], BACK[0], 0.25);
@@ -450,7 +477,7 @@ function skylineCard() {
   const n3 = (v) => Math.round(v * 1000) / 1000;
   const deg = (rad) => n3((rad * 180) / Math.PI);
   const track = (name, fn) =>
-    `@keyframes ${name}{${times.map((t) => `${r2((t / P) * 100)}%{transform:${fn(cam(t))}}`).join("")}}`;
+    `@keyframes ${name}{${times.map((time) => `${r2((time / P) * 100)}%{transform:${fn(cam(time))}}`).join("")}}`;
   const tracks = [
     track("sc", (c) => `translate(${r2(c.tx)}px,0px) scale(${n3(c.s)})`),
     track("tl", (c) => `skewX(${deg(-Math.atan2(c.kx, c.ky))}deg) scaleY(${n3(T * c.ky)})`),
@@ -467,7 +494,6 @@ function skylineCard() {
   );
 
   const tile = (x) => `<rect class="tl" x="${x}" y="${Y0 - 1}" width="${CW}" height="1" rx="2.5" ry=".21"/>`;
-  let peakEl = "";
   // Painter's order: back rows first, left to right, so nearer faces cover farther ones.
   const scene = rows
     .map((cells, k) => ({ cells, k }))
@@ -478,13 +504,14 @@ function skylineCard() {
         .map(({ c, d }) => {
           const x = r1(gx + c * PITCH), n = d.contributionCount;
           const lv = level[d.contributionLevel] ?? 0;
-          if (!n || !maxN) return `<g fill="${C.ramp[0]}">${tile(x)}</g>`;
+          // empty days are a faint veil, so they sit just off whatever glass shade is behind them
+          if (!n || !maxN) return `<g fill="${t.empty.fill}" fill-opacity="${t.empty.opacity}">${tile(x)}</g>`;
           const z = r1(MINH + (MAXH - MINH) * Math.sqrt(n / maxN));
-          // the peak label sits on a dark pill so it stays readable over the pale rooftops behind it
+          // the peak label sits on a pill so it stays readable over the rooftops behind it
           const text = `${n} · ${fmtDate(d.date)}`, tw = text.length * 6, lx = r1(x + 8.5);
           const label =
             d === st.best
-              ? `<g class="pk"><rect x="${r1(lx - tw / 2 - 7)}" y="${Y0 - 36}" width="${tw + 14}" height="16" rx="8" fill="${C.bg}" stroke="#3a3a3a"/><text x="${lx}" y="${Y0 - 24.5}" fill="#f2f2f2" font-size="10" text-anchor="middle" textLength="${tw}" lengthAdjust="spacingAndGlyphs">${text}</text><path d="M${lx} ${Y0 - 20}V${Y0 - 15.5}" stroke="#5a5a5a"/><circle cx="${lx}" cy="${Y0 - 13}" r="2" fill="${C.accent}"/></g>`
+              ? `<g class="pk"><rect x="${r1(lx - tw / 2 - 7)}" y="${Y0 - 36}" width="${tw + 14}" height="16" rx="8" fill="${t.peak.bg}" stroke="${t.peak.stroke}"/><text x="${lx}" y="${Y0 - 24.5}" fill="${t.peak.text}" font-size="10" text-anchor="middle" textLength="${tw}" lengthAdjust="spacingAndGlyphs">${text}</text><path d="M${lx} ${Y0 - 20}V${Y0 - 15.5}" stroke="${t.peak.tick}"/><circle cx="${lx}" cy="${Y0 - 13}" r="2" fill="${t.peak.dot}"/></g>`
               : "";
           // Roof lift: translateY(-lambda px) inside scale(1 z) moves the roof exactly z*lambda. The scale
           // is anchored at the baseline and its inverse kept at full precision, or the roof drifts off the walls.
@@ -511,10 +538,11 @@ function skylineCard() {
   });
 
   const pct = (s) => `${r2((s / P) * 100)}%`;
-  const faces = C.ramp
+  // rooftops carry the level colour; fronts and sides are shaded toward the theme's shadow tone
+  const faces = t.ramp
     .map((col, i) => {
-      const hot = mix(col, "#ffffff", 0.6);
-      return `.t${i}{fill:${col};animation:s${i} ${P}s ease-in-out infinite;animation-delay:var(--d)}.f${i}{fill:${mix(col, C.bg, 0.35)}}.s${i}{fill:${mix(col, C.bg, 0.62)}}@keyframes s${i}{0%,${pct(SWEEP)}{fill:${col}}${pct(SWEEP + 0.4)}{fill:${hot}}${pct(SWEEP + 1)},100%{fill:${col}}}`;
+      const hot = mix(col, "#ffffff", t.hot);
+      return `.t${i}{fill:${col};animation:s${i} ${P}s ease-in-out infinite;animation-delay:var(--d)}.f${i}{fill:${mix(col, t.shade.to, t.shade.front)}}.s${i}{fill:${mix(col, t.shade.to, t.shade.side)}}@keyframes s${i}{0%,${pct(SWEEP)}{fill:${col}}${pct(SWEEP + 0.4)}{fill:${hot}}${pct(SWEEP + 1)},100%{fill:${col}}}`;
     })
     .join("");
   // Base styles are the 2D view, so static renderers and reduced motion get the classic graph.
@@ -532,17 +560,24 @@ function skylineCard() {
     @keyframes pk { 0%, ${pct(TILT[1] - 0.2)} { opacity: 0 } ${pct(TILT[1] + 0.3)}, ${pct(BACK[0])} { opacity: 1 } ${pct(BACK[0] + 0.4)}, 100% { opacity: 0 } }
   `;
 
-  const footY = Y0 + 40;
-  return frame(W, footY + 26, style, `
+  const footY = Y0 + 40, H = footY + 26;
+  // the calendar sits in a glass window, like the windows in the hero
+  return frame(W, H, style, `
+  <defs>${glassDefs(t)}</defs>
+  ${glass(t, 8, 8, W - 16, H - 16, 12, t.glass.card)}
+  <text x="24" y="29" fill="${t.label}" font-size="10">~/contributions</text>
+  <text x="${W - 24}" y="29" fill="${t.faint}" font-size="10" text-anchor="end">calendar.3d</text>
   <g class="sc">${scene}</g>
-  <g class="lb" fill="${C.muted}" font-size="10">${labels}</g>
-  <text x="${gx}" y="${footY}" fill="${C.text}" font-size="13" font-weight="700">${cal.totalContributions} contributions<tspan fill="${C.muted}" font-weight="400"> in the last year</tspan></text>
-  <text x="${r1(gx + NW * PITCH - 4)}" y="${footY}" fill="${C.muted}" font-size="11" text-anchor="end">longest streak ${st.longest}d · current ${st.current}d</text>`);
+  <g class="lb" fill="${t.key}" font-size="10">${labels}</g>
+  <text x="${gx}" y="${footY}" fill="${t.title}" font-size="13" font-weight="700">${cal.totalContributions} contributions<tspan fill="${t.key}" font-weight="400"> in the last year</tspan></text>
+  <text x="${r1(gx + NW * PITCH - 4)}" y="${footY}" fill="${t.key}" font-size="11" text-anchor="end">longest streak ${st.longest}d · current ${st.current}d</text>`);
 }
 
 await mkdir(new URL("assets/", root), { recursive: true });
-await Promise.all([
-  writeFile(new URL("assets/hero.svg", root), heroCard()),
-  writeFile(new URL("assets/skyline.svg", root), skylineCard()),
-]);
+await Promise.all(
+  Object.entries(THEMES).flatMap(([name, theme]) => [
+    writeFile(new URL(`assets/hero-${name}.svg`, root), heroCard(theme)),
+    writeFile(new URL(`assets/skyline-${name}.svg`, root), skylineCard(theme)),
+  ]),
+);
 console.log(`ok: ${cal.totalContributions} contributions`);
