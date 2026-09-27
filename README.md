@@ -1,13 +1,9 @@
 <div align="center">
 
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/hero-dark.svg" />
-    <img src="./assets/hero-light.svg" alt="decibel" width="100%" />
-  </picture>
+  <img src="./assets/hero-dark.svg#gh-dark-mode-only" alt="decibel" width="100%" />
+  <img src="./assets/hero-light.svg#gh-light-mode-only" alt="decibel" width="100%" />
 
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/skyline-dark.svg" />
-    <img src="./assets/skyline-light.svg" alt="contributions" width="100%" />
-  </picture>
+  <img src="./assets/skyline-dark.svg#gh-dark-mode-only" alt="contributions" width="100%" />
+  <img src="./assets/skyline-light.svg#gh-light-mode-only" alt="contributions" width="100%" />
 
 </div>
