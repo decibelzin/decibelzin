@@ -297,7 +297,7 @@ function heroCard(t) {
   }
   const bar = at("drop", T.bar, `${glass(t, M, barY, W - 2 * M, barH, 8, t.glass.bar)}
   ${icon("archlinux", 24, mid - 7, 14, t.logo)}${ws}
-  <text x="${W / 2}" y="${mid + 3.5}" fill="${t.label}" font-size="10.5" text-anchor="middle">fastfetch</text>
+  <text x="${W / 2}" y="${mid + 3.5}" fill="${t.label}" font-size="10.5" text-anchor="middle">fastfetch - kitty</text>
   <text x="${W - M - 14}" y="${mid + 3.5}" fill="${t.barText}" font-size="10.5" text-anchor="end">${cal.totalContributions} commits<tspan fill="${t.sep}">  │  </tspan>${st.longest}d streak</text>`);
 
   // terminal
