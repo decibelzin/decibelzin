@@ -1,0 +1,19 @@
+{
+  "username": "decibelzin",
+  "name": "decibel",
+  "role": "fullstack engineer · security researcher",
+  "bio": "Infrastructure, offensive security, applied AI & UI/UX.",
+  "note": "Curious about anything that challenges me.",
+  "langs": [
+    { "name": "TypeScript", "icon": "typescript" },
+    { "name": "Rust", "icon": "rust" },
+    { "name": "Lua", "icon": "lua" },
+    { "name": "Python", "icon": "python" }
+  ],
+  "tools": [
+    { "name": "Node.js", "icon": "nodedotjs" },
+    { "name": "Docker", "icon": "docker" },
+    { "name": "Linux", "icon": "linux" }
+  ],
+  "commands": ["cargo build --release", "git push origin main", "nvim .", "docker compose up -d"]
+}
